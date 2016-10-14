@@ -116,7 +116,7 @@ isIdentityOrNotOk program =
         (Int32Neg: Int32Push 0: _) -> True
 
         -- x AND 0 == 0, 0 AND x == 0
-        (Int32And: Int32Push 0: _: _) -> True
+        (Int32And: Int32Push 0: _) -> True
         (Int32And: Int32Push _: Int32Push 0: _) -> True
 
         -- x OR 0 == x, 0 or x == x
