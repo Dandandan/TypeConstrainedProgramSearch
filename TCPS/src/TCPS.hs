@@ -187,8 +187,8 @@ typeOf instr stacktype =
         
 
 -- | Search for type correct programs
-searchIter :: [Instruction] -> [(Stack, Val)] -> StackType -> Program -> Int -> [Program]
-searchIter instructions goals stackType current limit = 
+searchIter :: [Instruction] -> [(Stack, Val)] -> StackType -> Program -> Int -> Int -> [Program]
+searchIter instructions goals stackType current currentDepth limit  = 
     let
         -- Possible programs given current instruction set
         typeCorrect = catMaybes $ map (\i -> (\ty -> (ty, i:current)) `fmap` typeOf i stackType) instructions
@@ -200,11 +200,10 @@ searchIter instructions goals stackType current limit =
         satisfiesAll = filter (\(_, program) ->
             let p = reverse program in all (\(s, g) -> exec p p s zeroState == g) goals) isFinal
     in
-        if length current > limit then
-            return []
+        if currentDepth == limit then
+            map snd satisfiesAll
         else
-            map snd satisfiesAll ++
-                concatMap (\(ty, program) -> searchIter instructions goals ty program limit) notIdentity
+            concatMap (\(ty, program) -> searchIter instructions goals ty program (currentDepth + 1) limit) notIdentity
 
 -- | Find programs given input stacks and result (from shortest to higher, if possible)
 -- | This will not terminate if goals are not possible given instruction set and goals
@@ -214,23 +213,17 @@ search instructions goals =
         -- Compute first type, assume for now that all goals are of equal type
         (x, _): _ ->
             -- use iterative deepening
-            map reverse . filter (/=[]) $ concatMap (searchIter instructions goals (getTypeOfStack x) []) [0..]
+            map reverse . filter (/=[]) $ concatMap (searchIter instructions goals (getTypeOfStack x) [] 1) [1..]
         _ ->
             []
 
 
 {- Examples
 
-instructionSet = [Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, PopCount, Int32Inc]
+instructionSet = [Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
 pow3PlusOneProgram = head $ search instructionSet pow3PlusOneGoals
-
-
--- f(a, b) = bits set a + bits set b 
-bitsSetExpr = [([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 3, Int32Val 1], Int32Val 3), ([Int32Val 6, Int32Val 2], Int32Val 3), ([Int32Val 8, Int32Val 1], Int32Val 2)]
-bitsSetProgram = head $ search instructionSet bitsSetExpr
-
 
 -}
