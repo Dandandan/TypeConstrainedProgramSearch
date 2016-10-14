@@ -2,7 +2,7 @@ module TCPS where
 
 import Data.Maybe (catMaybes)
 import Data.Int (Int32)
-import Data.Bits ((.&.), (.|.), xor)
+import Data.Bits ((.&.), (.|.), xor, popCount, complement)
 
 data Types = Int32Type | Float32Type deriving Show
 
@@ -15,9 +15,12 @@ data Instruction
     | Int32Div -- | Integer32 Subdivision
     | Int32Mod -- | Integer32 Modulus
     | Int32Neg -- | Integer32 Negation
+    | Int32Inc -- | Integer32 Increment
     | Int32And -- | Integer32 AND
     | Int32Or -- | Integer32 OR
     | Int32Xor -- | Integer32 XOR
+    | Int32PopCount -- | Integer32 PopCount
+    | Int32Not -- | Integer32 One's Complement / Not
     | Int32Push Int32 -- | Push constant to stack
     | Lds Int -- | Load value relative to stack pointer
     -- | TODO: Add much more instructions (floating point, logical), make custom instructions / types possible
@@ -29,11 +32,13 @@ data Val = Int32Val Int32 | Float32Val Float | Error deriving (Show, Eq)
 
 type Stack = [Val]
 
-type CPUState = Int -- Program Counter
+type CPUState = Int -- Program Counter TODO: add stack pointer etc.
 
+-- | Beginning state of CPU 
 zeroState :: CPUState
 zeroState = 0
 
+-- Executes program given program code, stack and state (emulator)
 exec :: Program -> Program -> Stack -> CPUState -> Val
 exec program todo stack counter  =
     case (todo, stack) of
@@ -66,7 +71,10 @@ exec program todo stack counter  =
 
         (Int32Neg: xs, (Int32Val y1: ys)) ->
             exec program xs (Int32Val (-y1): ys) (counter + 1)
-    
+
+        (Int32Inc: xs, (Int32Val y: ys)) ->
+            exec program xs (Int32Val (y + 1): ys) (counter + 1)
+ 
         (Int32And: xs, (Int32Val y1:Int32Val y2: ys)) ->
             exec program xs (Int32Val (y1 .&. y2): ys) (counter + 1)
 
@@ -76,11 +84,18 @@ exec program todo stack counter  =
         (Int32Xor: xs, (Int32Val y1:Int32Val y2: ys)) ->
             exec program xs (Int32Val (y1 `xor` y2): ys) (counter + 1)
 
+        (Int32PopCount: xs, (Int32Val y: ys)) ->
+            exec program xs (Int32Val (fromIntegral $ popCount y): ys) (counter + 1)
+
+        (Int32Not: xs, (Int32Val y: ys)) ->
+            exec program xs (Int32Val (complement y): ys) (counter + 1)
+
         (Lds i: xs, ys) ->
             exec program xs (ys !! (abs i - 1): ys) (counter + 1)
         _ ->
             error "exec: this should not have happened"
 
+-- | Gets StackType given values on stack
 getTypeOfStack :: Stack -> StackType
 getTypeOfStack (Int32Val _: xs) = Int32Type: getTypeOfStack xs
 getTypeOfStack (Float32Val _: xs) = Float32Type: getTypeOfStack xs
@@ -123,6 +138,11 @@ isIdentityOrNotOk program =
         (Int32Or: Int32Push 0: _) -> True
         (Int32Or: Int32Push _: Int32Push 0: _) -> True
 
+        -- popCnt 0 == 0
+        (Int32PopCount: Int32Push 0: _) -> True
+        -- popCnt 1 == 1
+        (Int32PopCount: Int32Push 1: _) -> True
+
         -- x % 0 = crash
         (Int32Mod: Int32Push 0: _) -> True
         -- x / 0 = crash
@@ -146,11 +166,17 @@ typeOf instr stacktype =
             Just(Int32Type: ys)
         (Int32Neg, Int32Type: ys) ->
             Just(Int32Type: ys)
+        (Int32Inc, Int32Type: ys) ->
+            Just(Int32Type: ys)
         (Int32And, Int32Type: Int32Type: ys) ->
             Just(Int32Type: ys)
         (Int32Or, Int32Type: Int32Type: ys) ->
             Just(Int32Type: ys)
         (Int32Xor, Int32Type: Int32Type: ys) ->
+            Just(Int32Type: ys)
+        (Int32Not, Int32Type: ys) ->
+            Just(Int32Type: ys)
+        (Int32PopCount, Int32Type: ys) ->
             Just(Int32Type: ys)
         (Int32Push _, ys) ->
             Just(Int32Type: ys)
@@ -195,11 +221,16 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div]
+instructionSet = [Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, PopCount, Int32Inc]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
 pow3PlusOneProgram = head $ search instructionSet pow3PlusOneGoals
+
+
+-- f(a, b) = bits set a + bits set b 
+bitsSetExpr = [([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 3, Int32Val 1], Int32Val 3), ([Int32Val 6, Int32Val 2], Int32Val 3), ([Int32Val 8, Int32Val 1], Int32Val 2)]
+bitsSetProgram = head $ search instructionSet bitsSetExpr
 
 
 -}
