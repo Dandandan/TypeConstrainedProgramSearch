@@ -12,16 +12,24 @@ data Instruction
     = Int32Add -- | Integer32 Addition
     | Int32Mul -- | Integer32 Multiplication
     | Int32Sub -- | Integer32 Substraction
-    | Int32Div -- | Integer32 Subdivision
+    | Int32Div -- | Integer32 Division
     | Int32Mod -- | Integer32 Modulus
     | Int32Neg -- | Integer32 Negation
     | Int32Inc -- | Integer32 Increment
+    | Int32Dec -- | Integer32 Decrement
     | Int32And -- | Integer32 AND
     | Int32Or -- | Integer32 OR
     | Int32Xor -- | Integer32 XOR
     | Int32PopCount -- | Integer32 PopCount
     | Int32Not -- | Integer32 One's Complement / Not
-    | Int32Push Int32 -- | Push constant to stack
+    | Int32Push Int32 -- | Integer32 Push constant to stack
+    | Float32Push Float -- | Integer32 Push constant to stack
+    | Float32Add -- | Float32 Addition
+    | Float32Mul -- | Float32 Multiplication
+    | Float32Sub -- | Float32 Substraction
+    | Float32Div -- | Float32 Division
+    | Float32Neg -- | Integer32 Negation
+
     | Lds Int -- | Load value relative to stack pointer
     | Sts Int -- | Store value relative to stack pointer
     -- | TODO: Add much more instructions (floating point, logical), make custom instructions / types possible
@@ -76,13 +84,16 @@ exec program todo stack counter  =
         (Int32Inc: xs, (Int32Val y: ys)) ->
             exec program xs (Int32Val (y + 1): ys) (counter + 1)
  
-        (Int32And: xs, (Int32Val y1:Int32Val y2: ys)) ->
+        (Int32Dec: xs, (Int32Val y: ys)) ->
+            exec program xs (Int32Val (y - 1): ys) (counter + 1)
+
+        (Int32And: xs, (Int32Val y1: Int32Val y2: ys)) ->
             exec program xs (Int32Val (y1 .&. y2): ys) (counter + 1)
 
-        (Int32Or: xs, (Int32Val y1:Int32Val y2: ys)) ->
+        (Int32Or: xs, (Int32Val y1: Int32Val y2: ys)) ->
             exec program xs (Int32Val (y1 .|. y2): ys) (counter + 1)
 
-        (Int32Xor: xs, (Int32Val y1:Int32Val y2: ys)) ->
+        (Int32Xor: xs, (Int32Val y1: Int32Val y2: ys)) ->
             exec program xs (Int32Val (y1 `xor` y2): ys) (counter + 1)
 
         (Int32PopCount: xs, (Int32Val y: ys)) ->
@@ -90,6 +101,24 @@ exec program todo stack counter  =
 
         (Int32Not: xs, (Int32Val y: ys)) ->
             exec program xs (Int32Val (complement y): ys) (counter + 1)
+
+        (Float32Push i: xs, ys) ->
+            exec program xs (Float32Val i: ys) (counter + 1)
+
+        (Float32Add: xs, (Float32Val y1: Float32Val y2: ys)) ->
+            exec program xs (Float32Val (y1 + y2): ys) (counter + 1)
+
+        (Float32Mul: xs, (Float32Val y1: Float32Val y2: ys)) ->
+            exec program xs (Float32Val (y1 * y2): ys) (counter + 1)
+
+        (Float32Sub: xs, (Float32Val y1: Float32Val y2: ys)) ->
+            exec program xs (Float32Val (y1 - y2): ys) (counter + 1)
+
+        (Float32Div: xs, (Float32Val y1: Float32Val y2: ys)) ->
+            exec program xs (Float32Val (y1 / y2): ys) (counter + 1)
+    
+        (Float32Neg: xs, (Float32Val y1: ys)) ->
+            exec program xs (Float32Val (-y1) : ys) (counter + 1)
 
         (Lds i: xs, ys) ->
             exec program xs (ys !! (abs i - 1): ys) (counter + 1)
@@ -176,6 +205,8 @@ typeOf instr stacktype =
             Just(Int32Type: ys)
         (Int32Inc, Int32Type: ys) ->
             Just(Int32Type: ys)
+        (Int32Dec, Int32Type: ys) ->
+            Just(Int32Type: ys)
         (Int32And, Int32Type: Int32Type: ys) ->
             Just(Int32Type: ys)
         (Int32Or, Int32Type: Int32Type: ys) ->
@@ -188,6 +219,18 @@ typeOf instr stacktype =
             Just(Int32Type: ys)
         (Int32Push _, ys) ->
             Just(Int32Type: ys)
+        (Float32Push _, ys) ->
+            Just(Float32Type: ys)
+        (Float32Add, Float32Type: Float32Type: ys) ->
+            Just(Float32Type: ys)
+        (Float32Mul, Float32Type: Float32Type: ys) ->
+            Just(Float32Type: ys)
+        (Float32Sub, Float32Type: Float32Type: ys) ->
+            Just(Float32Type: ys)
+        (Float32Div, Float32Type: Float32Type: ys) ->
+            Just(Float32Type: ys)
+        (Float32Neg, Float32Type: ys) ->
+            Just(Float32Type: ys)
         (Lds i, ys) ->
             if i < 0 && length ys >= abs i then
                 Just (ys !! (abs i - 1): ys)
@@ -239,7 +282,7 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Sts(-2), Sts(-3),  Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
+instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
