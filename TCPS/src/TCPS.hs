@@ -23,6 +23,7 @@ data Instruction
     | Int32Not -- | Integer32 One's Complement / Not
     | Int32Push Int32 -- | Push constant to stack
     | Lds Int -- | Load value relative to stack pointer
+    | Sts Int -- | Store value relative to stack pointer
     -- | TODO: Add much more instructions (floating point, logical), make custom instructions / types possible
     deriving (Show, Eq)
 
@@ -92,6 +93,13 @@ exec program todo stack counter  =
 
         (Lds i: xs, ys) ->
             exec program xs (ys !! (abs i - 1): ys) (counter + 1)
+
+        (Sts i: xs, y:ys) ->
+            let
+                (z,_:zs) = splitAt (abs i - 2) ys
+                new = z ++ [y] ++ zs
+            in
+                exec program xs new (counter + 1)
         _ ->
             error "exec: this should not have happened"
 
@@ -181,7 +189,18 @@ typeOf instr stacktype =
         (Int32Push _, ys) ->
             Just(Int32Type: ys)
         (Lds i, ys) ->
-            if i < 0 && length ys >= abs i then Just (ys !! (abs i - 1): ys) else Nothing
+            if i < 0 && length ys >= abs i then
+                Just (ys !! (abs i - 1): ys)
+            else
+                Nothing
+        (Sts i, y: ys) ->
+            if i < -1 && length ys >= abs i - 1 then
+                let
+                    (xs,_:zs) = splitAt (abs i - 2) ys
+                in
+                    Just(xs ++ [y] ++ zs)
+            else
+                Nothing
         _ ->
             Nothing
         
@@ -220,10 +239,15 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
+instructionSet = [Sts(-2), Sts(-3),  Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
 pow3PlusOneProgram = head $ search instructionSet pow3PlusOneGoals
+
+
+-- Find program that computes f(x, y) = popCount(x) + popCount(y)
+popCounts2 = [([Int32Val 1, Int32Val 1], Int32Val 2), ([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 7, Int32Val 7], Int32Val 6)]
+popCounts2Program = head $ search instructionSet popCounts2
 
 -}
