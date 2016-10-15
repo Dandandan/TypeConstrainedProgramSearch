@@ -1,9 +1,10 @@
 # Type Constrained Program Search
 Type Constrained Program Search: Program search for type correct programs.
 
+This repository contains an implementation of what I call Type Constrained Program Search. It searches for all programs from small to big that are both typ correct (resulting in a much smaller search space) and satisfy all program goals.
+
 
 Examples
-
 === 
 ```haskell
 -- Use this set of instructions
