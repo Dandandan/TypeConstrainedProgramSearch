@@ -2,7 +2,7 @@ module TCPS where
 
 import Data.Maybe (catMaybes)
 import Data.Int (Int32)
-import Data.Bits ((.&.), (.|.), xor, popCount, complement)
+import Data.Bits ((.&.), (.|.), xor, popCount, complement, shiftL, shiftR)
 
 data Types = Int32Type | Float32Type deriving Show
 
@@ -23,6 +23,8 @@ data Instruction
     | Int32PopCount -- | Integer32 PopCount
     | Int32Not -- | Integer32 One's Complement / Not
     | Int32Push Int32 -- | Integer32 Push constant to stack
+    | Int32ShiftL -- | Integer32 Shift left 
+    | Int32ShiftR -- | Integer32 Shift right
     | Float32Push Float -- | Float32 Push constant to stack
     | Float32Add -- | Float32 Addition
     | Float32Mul -- | Float32 Multiplication
@@ -100,6 +102,18 @@ exec program todo stack counter  =
 
         (Int32Not: xs, (Int32Val y: ys)) ->
             exec program xs (Int32Val (complement y): ys) (counter + 1)
+
+        (Int32ShiftL: xs, (Int32Val y: Int32Val shift: ys)) ->
+            if shift >= 0 then 
+                exec program xs (Int32Val (shiftL y (fromIntegral shift)): ys) (counter + 1)
+            else
+                Error
+
+        (Int32ShiftR: xs, (Int32Val y: Int32Val shift: ys)) ->
+            if shift >= 0 then 
+                exec program xs (Int32Val (shiftR y (fromIntegral shift)): ys) (counter + 1)
+            else
+                Error
 
         (Float32Push i: xs, ys) ->
             exec program xs (Float32Val i: ys) (counter + 1)
@@ -214,6 +228,10 @@ typeOf instr stacktype =
             Just(Int32Type: ys)
         (Int32Not, Int32Type: ys) ->
             Just(Int32Type: ys)
+        (Int32ShiftL, Int32Type: Int32Type: ys) ->
+            Just(Int32Type: ys)
+        (Int32ShiftR, Int32Type: Int32Type: ys) ->
+            Just(Int32Type: ys)
         (Int32PopCount, Int32Type: ys) ->
             Just(Int32Type: ys)
         (Int32Push _, ys) ->
@@ -281,7 +299,7 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec]
+instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1),Int32Push 0, Int32Push 1, Int32Push 2, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
@@ -289,7 +307,13 @@ pow3PlusOneProgram = head $ search instructionSet pow3PlusOneGoals
 
 
 -- Find program that computes f(x, y) = popCount(x) + popCount(y)
-popCounts2 = [([Int32Val 1, Int32Val 1], Int32Val 2), ([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 7, Int32Val 7], Int32Val 6)]
-popCounts2Program = head $ search instructionSet popCounts2
+popCounts2Goals = [([Int32Val 1, Int32Val 1], Int32Val 2), ([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 7, Int32Val 7], Int32Val 6)]
+popCounts2Program = head $ search instructionSet popCounts2Goals
+
+-- leftShift by 3 without instruction (Int32Push 3)
+-- [Int32Push 2,Lds (-1),Int32ShiftL,Int32Mul]
+leftshiftGoals = [([Int32Val 1], Int32Val 8), ([Int32Val 2], Int32Val 16), ([Int32Val 3], Int32Val 24), ([Int32Val 4], Int32Val 32), ([Int32Val 5], Int32Val 40)]
+leftshiftProgram = head $ search instructionSet leftshiftGoals
+
 
 -}
