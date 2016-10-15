@@ -23,13 +23,12 @@ data Instruction
     | Int32PopCount -- | Integer32 PopCount
     | Int32Not -- | Integer32 One's Complement / Not
     | Int32Push Int32 -- | Integer32 Push constant to stack
-    | Float32Push Float -- | Integer32 Push constant to stack
+    | Float32Push Float -- | Float32 Push constant to stack
     | Float32Add -- | Float32 Addition
     | Float32Mul -- | Float32 Multiplication
     | Float32Sub -- | Float32 Substraction
     | Float32Div -- | Float32 Division
-    | Float32Neg -- | Integer32 Negation
-
+    | Float32Neg -- | Float32 Negation
     | Lds Int -- | Load value relative to stack pointer
     | Sts Int -- | Store value relative to stack pointer
     -- | TODO: Add much more instructions (floating point, logical), make custom instructions / types possible
@@ -282,7 +281,7 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
+instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
