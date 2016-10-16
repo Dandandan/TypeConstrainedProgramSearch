@@ -188,16 +188,35 @@ isIdentityOrNotOk program =
         (Int32Or: Int32Push 0: _) -> True
         (Int32Or: Int32Push _: Int32Push 0: _) -> True
 
-        -- popCnt 0 == 0
+        -- 0 << x == 0
+        (Int32ShiftL: Int32Push 0: _) -> True
+        -- 0 >> x == 0
+        (Int32ShiftR: Int32Push 0: _) -> True
+        -- x << 0 = x
+        (Int32ShiftL: _: Int32Push 0: _) -> True
+        -- x >> 0 = x
+        (Int32ShiftR: _: Int32Push 0: _) -> True
+
+        -- PopCount(0) == 0
         (Int32PopCount: Int32Push 0: _) -> True
-        -- popCnt 1 == 1
+        -- PopCount(1) == 1
         (Int32PopCount: Int32Push 1: _) -> True
+
+        -- Lds(Int32Push x) = (Int32Push x) 
+        (Lds (-1): Int32Push _: _) -> True
+        -- Lds(Float32Push x) = (Float32Push x) 
+        (Lds (-1): Float32Push _: _) -> True
+
+        -- x + 1 - 1 = x
+        (Int32Dec: Int32Inc: _) -> True
+        -- x - 1 + 1 = x
+        (Int32Inc: Int32Dec: _) -> True
 
         -- x % 0 = crash
         (Int32Mod: Int32Push 0: _) -> True
         -- x / 0 = crash
         (Int32Div: Int32Push 0: _) -> True
-        -- TODO: add more here (or search for them)
+        -- TODO: add more rules (or search for them)
         _ -> False
 
 -- Computes type of program if type correct
@@ -299,7 +318,7 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1),Int32Push 0, Int32Push 1, Int32Push 2, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
+instructionSet = [Sts(-2), Sts(-3), Lds (-2), Lds (-1),Int32Push (-1), Int32Push 0, Int32Push 1, Int32Push 2, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
