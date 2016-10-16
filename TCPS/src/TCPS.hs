@@ -212,6 +212,12 @@ isIdentityOrNotOk program =
         -- x - 1 + 1 = x
         (Int32Inc: Int32Dec: _) -> True
 
+        -- Sts (-2)(Lds(-1)(s)) == s
+        (Sts (-2): Lds (-1): _) -> True
+
+        -- Lds (-2)(Lds(-1)(s)) == Lds (-1)(Lds(-1)(s))
+        (Lds (-2): Lds (-1): _) -> True
+
         -- x % 0 = crash
         (Int32Mod: Int32Push 0: _) -> True
         -- x / 0 = crash
@@ -300,7 +306,7 @@ searchIter instructions goals stackType current currentDepth limit  =
     in
         if currentDepth == limit then
             map snd satisfiesAll
-        else
+        else 
             concatMap (\(ty, program) -> searchIter instructions goals ty program (currentDepth + 1) limit) notIdentity
 
 -- | Find programs given input stacks and result (from shortest to higher, if possible)
@@ -314,7 +320,6 @@ search instructions goals =
             map reverse . filter (/=[]) $ concatMap (searchIter instructions goals (getTypeOfStack x) [] 1) [1..]
         _ ->
             []
-
 
 {- Examples
 
