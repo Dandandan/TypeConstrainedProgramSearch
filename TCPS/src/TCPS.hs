@@ -74,7 +74,7 @@ exec program todo stack counter  =
             exec program xs (Int32Val (y1 * y2): ys) (counter + 1)
 
         (Int32Div: xs, (Int32Val y1:Int32Val y2: ys)) ->
-            if y2 /= 0 then
+            if y2 /= 0 && not(y2 == (-1) && y1 == minBound) then
                 exec program xs (Int32Val (y1 `div` y2): ys) (counter + 1)
             else
                 Error
