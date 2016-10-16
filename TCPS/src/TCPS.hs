@@ -25,11 +25,12 @@ data Instruction
     | Int32Push Int32 -- | Integer32 Push constant to stack
     | Int32ShiftL -- | Integer32 Shift left 
     | Int32ShiftR -- | Integer32 Shift right
-    | Int32Eq     -- |Integer32 Equality
-    | Int32Lt     -- | Integer32 Less than
-    | Int32Gt     -- | Integer32 Greater than
-    | Int32Lte     -- | Integer32 Less than equal
-    | Int32Gte     -- | Integer32 Greater than equal
+    | Int32Eq  -- |Integer32 Equality
+    | Int32Lt  -- | Integer32 Less than
+    | Int32Gt  -- | Integer32 Greater than
+    | Int32Lte -- | Integer32 Less than equal
+    | Int32Gte -- | Integer32 Greater than equal
+    | Int32Cmp -- | Integer32 Compare (resulting in -1 if smaller, 0 if equal and 1 if bigger)
     | Float32Push Float -- | Float32 Push constant to stack
     | Float32Add -- | Float32 Addition
     | Float32Mul -- | Float32 Multiplication
@@ -131,6 +132,9 @@ exec program todo stack counter  =
 
         (Int32Gte: xs, (Int32Val y1: Int32Val y2: ys)) ->
             exec program xs (Int32Val (if y1 >= y2 then 1 else 0): ys) (counter + 1)
+
+        (Int32Cmp: xs, (Int32Val y1: Int32Val y2: ys)) ->
+            exec program xs (Int32Val (if y1 < y2 then (-1) else (if y1 == y2 then 0 else 1)): ys) (counter + 1)
 
         (Float32Push i: xs, ys) ->
             exec program xs (Float32Val i: ys) (counter + 1)
@@ -284,6 +288,8 @@ typeOf instr stacktype =
             Just(Int32Type: ys)
         (Int32Gte, Int32Type: Int32Type: ys) ->
             Just(Int32Type: ys)
+        (Int32Cmp, Int32Type: Int32Type: ys) ->
+            Just(Int32Type: ys)
         (Int32Push _, ys) ->
             Just(Int32Type: ys)
         (Float32Push _, ys) ->
@@ -348,7 +354,7 @@ search instructions goals =
 
 {- Examples
 
-instructionSet = [Int32Eq, Int32Lt, Int32Lte, Int32Gt, Int32Gte, Sts(-2), Sts(-3), Lds (-2), Lds (-1),Int32Push (-1), Int32Push 0, Int32Push 1, Int32Push 2, Int32Add, Int32Sub, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
+instructionSet = [Int32Cmp, Int32Eq, Int32Lt, Int32Lte, Int32Gt, Int32Gte, Sts(-2), Sts(-3), Lds (-2), Lds (-1),Int32Push (-1), Int32Push 30, Int32Push 0, Int32Push 1, Int32Push 2, Int32Add, Int32Sub, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
@@ -365,8 +371,8 @@ leftshiftGoals = [([Int32Val 1], Int32Val 8), ([Int32Val 2], Int32Val 16), ([Int
 leftshiftProgram = head $ search instructionSet leftshiftGoals
 
 
-absGoals = [([Int32Val 1], Int32Val 1), ([Int32Val (-1)], Int32Val 1), ([Int32Val 2], Int32Val 2), ([Int32Val (-2)], Int32Val 2), ([Int32Val 3], Int32Val 3), ([Int32Val (-3)], Int32Val 3)]
-leftshiftProgram = head $ search instructionSet absGoals
+absGoals = [([Int32Val 1], Int32Val 1), ([Int32Val (-1)], Int32Val 1), ([Int32Val 2], Int32Val 2), ([Int32Val (-2)], Int32Val 2), ([Int32Val 3], Int32Val 3), ([Int32Val (-3)], Int32Val 3), ([Int32Val 4], Int32Val 4), ([Int32Val (-4)], Int32Val 4)]
+absProgram = head $ search instructionSet absGoals
 
 
 -}
