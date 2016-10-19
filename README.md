@@ -1,27 +1,22 @@
 # Type Constrained Program Search
-Type Constrained Program Search: Program search for type correct programs.
-
-This repository contains an implementation of what I call Type Constrained Program Search. It searches for all programs from small to big that are both type correct (resulting in a much smaller search space) and satisfy all program goals.
-
+Type Constrained Program Search: Super optimizing program search for type correct programs with equivalence pruning.
 
 Examples
 === 
-```haskell
--- Use this set of instructions
-instructionSet = [Sts(-2), Sts(-3),  Lds (-2), Lds (-1), Int32Push 1, Int32Add, Int32Mul, Int32Div, Int32PopCount, Int32Inc]
 
--- Create goals: the program should produce all these values given values on stack
+```haskell
+-- Create goals: the program(s) should produce all input / output pairs
 -- We want to find a program that computes f(x) = x^3 + 1
-pow3PlusOneGoals = [([Int32Val 2], Int32Val 9), ([Int32Val 3], Int32Val 28), ([Int32Val 4], Int32Val 65)]
+pow3PlusOneGoals = [([Int32Val 2], [Int32Val 9]), ([Int32Val 3], [Int32Val 28]), ([Int32Val 4], [Int32Val 65])]
 
 -- Find a program that satisfies our constraints
 -- This results in this (correct) program:  [Lds (-1),Lds (-1),Int32Mul,Int32Mul,Int32Inc]
-pow3PlusOneProgram = head $ search instructionSet pow3PlusOneGoals
+pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals identity5Tree
 
 -- Goals for adding two popCounts: f(x, y) = popCount(x) + popCount(y)
-popCounts2 = [([Int32Val 1, Int32Val 1], Int32Val 2), ([Int32Val 2, Int32Val 3], Int32Val 3), ([Int32Val 7, Int32Val 7], Int32Val 6)]
+popCounts2Goals = [([Int32Val x, Int32Val y], [Int32Val (fromIntegral $ popCount x + popCount y)]) | x <- [-100..100], y <- [-100..100]]
 
--- Finds as first result: [Lds (-2),Int32PopCount,Sts (-3),Int32PopCount,Int32Add]
-popCounts2Program = head $ search instructionSet popCounts2
+-- Finds as first result: [Int32PopCount,Lds (-2),Int32PopCount,Int32Add,Sts (-2)]
+popCounts2Program = head $ search defaultInstructionSet popCounts2Goals identity5Tree
 
 ```
