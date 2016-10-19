@@ -4,7 +4,7 @@ import           Data.Bits  (complement, popCount, shiftL, shiftR, xor, (.&.),
                              (.|.))
 import           Data.Int   (Int32)
 import           Data.List  (sort)
-import           qualified  Data.Map as Map (Map, fromList, filterWithKey, map, mapWithKey, empty, findWithDefault, keys)
+import           qualified  Data.Map as Map (Map, fromList, filterWithKey, mapWithKey, empty, findWithDefault, keys, (!))
 import           Data.Maybe (mapMaybe)
 
 -- | Possible base types
@@ -14,7 +14,7 @@ data BaseType = Int32Type | Float32Type deriving (Eq, Show)
 type StackType = [BaseType]
 
 -- | Multiway tree for contextual successor pruning 
-data SuccTree = SuccTree Int (Map.Map Instruction SuccTree) deriving Show
+data SuccTree = SuccTree (Map.Map Instruction SuccTree) deriving Show
 
 -- | Some implemented instruction
 data Instruction
@@ -186,90 +186,6 @@ typeOfStack (Int32Val _: xs) = Int32Type: typeOfStack xs
 typeOfStack (Float32Val _: xs) = Float32Type: typeOfStack xs
 typeOfStack _ = []
 
--- | Finds whether there are identity parts in the program to
--- | reduce the search space.
--- | Also rejects inputs like division by zero
-isIdentityOrNotOk :: Program -> Bool
-isIdentityOrNotOk program =
-    case program of
-        -- x + 0 = x, 0 + x = x
-        (Int32Add: Int32Push 0: _) -> True
-        (Int32Add: Int32Push _: Int32Push 0: _) -> True
-
-        -- x * 1 = x, 1 * x = x
-        (Int32Mul: Int32Push 1: _) -> True
-        (Int32Mul: Int32Push _: Int32Push 1: _) -> True
-
-        -- x - 0 = x
-        (Int32Sub: Int32Push 0: _) -> True
-
-        -- x / 1 = x
-        (Int32Div: Int32Push 1: _) -> True
-
-        -- -0 = 0
-        (Int32Neg: Int32Push 0: _) -> True
-
-        -- x AND 0 == 0, 0 AND x == 0
-        (Int32And: Int32Push 0: _) -> True
-        (Int32And: Int32Push _: Int32Push 0: _) -> True
-
-        -- x OR 0 == x, 0 or x == x
-        (Int32Or: Int32Push 0: _) -> True
-        (Int32Or: Int32Push _: Int32Push 0: _) -> True
-
-        -- 0 << x == 0
-        (Int32ShiftL: Int32Push 0: _) -> True
-        -- 0 >> x == 0
-        (Int32ShiftR: Int32Push 0: _) -> True
-        -- x << 0 = x
-        (Int32ShiftL: _: Int32Push 0: _) -> True
-        -- x >> 0 = x
-        (Int32ShiftR: _: Int32Push 0: _) -> True
-
-        -- PopCount(0) == 0
-        (Int32PopCount: Int32Push 0: _) -> True
-        -- PopCount(1) == 1
-        (Int32PopCount: Int32Push 1: _) -> True
-
-        -- Lds(Int32Push x) = (Int32Push x)
-        (Lds (-1): Int32Push _: _) -> True
-        -- Lds(Float32Push x) = (Float32Push x)
-        (Lds (-1): Float32Push _: _) -> True
-
-        -- x + 1 - 1 = x
-        (Int32Dec: Int32Inc: _) -> True
-        -- x - 1 + 1 = x
-        (Int32Inc: Int32Dec: _) -> True
-
-        -- Sts (-2)(Lds(-1)(s)) == s
-        (Sts (-2): Lds (-1): _) -> True
-
-        -- Lds (-2)(Lds(-1)(s)) == Lds (-1)(Lds(-1)(s))
-        (Lds (-2): Lds (-1): _) -> True
-
-        (Int32And: Lds (-1): _) -> True
-
-        (Int32Or: Lds (-1): _) -> True
-
-        -- x % 0 = crash
-        (Int32Mod: Int32Push 0: _) -> True
-        -- x / 0 = crash
-        (Int32Div: Int32Push 0: _) -> True
-        -- TODO: add more rules (or search for them)
-        _ -> False
-
-isFilter :: Program -> Program -> Bool
-isFilter [] _ = True
-isFilter (_:_) [] = False
-isFilter (x:xs) (y:ys) = x == y && isFilter xs ys
-
--- | Prune program given a list of pruning filters
--- | Filters must be sorted increasingly by depth
--- | TODO: create better prune datastructure
-prune :: [Program] -> Program -> Bool
-prune filters program = any (\f ->isFilter f program) filters
-
-
 -- | Computes the type of the program when adding the
 -- |  instruction if it's type correct.
 typeOf :: Instruction -> StackType -> Maybe StackType
@@ -349,27 +265,24 @@ typeOf instr stacktype =
         _ ->
             Nothing
 
+-- | Lookup successors given program context
 lookupSuccs :: [Instruction] -> SuccTree -> [Instruction]
-lookupSuccs [] (SuccTree _ y) = Map.keys y
-lookupSuccs ([x]) (SuccTree _ t) =
+lookupSuccs [] (SuccTree y) = Map.keys y
+lookupSuccs ([x]) (SuccTree t) =
     let
-        SuccTree _ y = Map.findWithDefault (SuccTree 0 Map.empty) x t
+        SuccTree y = Map.findWithDefault (SuccTree Map.empty) x t
     in
         Map.keys y
-lookupSuccs (x:xs) (SuccTree _ t) = lookupSuccs xs (Map.findWithDefault (SuccTree 0 Map.empty) x t)
+lookupSuccs (x:xs) (SuccTree t) = lookupSuccs xs (Map.findWithDefault (SuccTree Map.empty) x t)
 
 -- | Search for type correct programs that satisfy the goals given some instructions
-searchIter :: [Instruction] -> [(Stack, [Val])] -> StackType -> StackType -> Program -> SuccTree -> Int -> Int -> [Program]
-searchIter instructions goals inputStackType outputStackType current tree@(SuccTree succDepth _) currentDepth limit  =
+searchIter :: [Instruction] -> [(Stack, [Val])] -> StackType -> StackType -> Program -> (SuccTree, Int) -> Int -> Int -> [Program]
+searchIter instructions goals inputStackType outputStackType current (tree, succDepth) currentDepth limit  =
     let
-        succs = lookupSuccs (reverse (take (succDepth - 1) current)) tree
+        successors = lookupSuccs (reverse (take (succDepth - 1) current)) tree
         -- Possible programs given current instruction set
-        typeCorrect = mapMaybe (\i -> (\ty -> (ty, i:current)) `fmap` typeOf i inputStackType) succs
-        -- Prune non-productive programs
-        --notIdentity = filter (\(_, program) -> not (prune pruneList (reverse program))) typeCorrect
-        --notIdentity = typeCorrect
-        --notIdentity = filter (\(_, program) -> not (isIdentityOrNotOk program)) typeCorrect
-        -- filter on output type
+        typeCorrect = mapMaybe (\i -> (\ty -> (ty, i:current)) `fmap` typeOf i inputStackType) successors
+        -- Don't run test when type != output type
         isOutput = filter (\(ty, _) -> ty == outputStackType) typeCorrect
         --  Find whether there are programs at current depth satisfy the goals TODO: undo reverse
         satisfiesAll = filter (\(_, program) ->
@@ -378,7 +291,7 @@ searchIter instructions goals inputStackType outputStackType current tree@(SuccT
         if currentDepth == limit then
             map snd satisfiesAll
         else
-            concatMap (\(ty, program) -> searchIter instructions goals ty outputStackType program tree (currentDepth + 1) limit) typeCorrect
+            concatMap (\(ty, program) -> searchIter instructions goals ty outputStackType program (tree, succDepth) (currentDepth + 1) limit) typeCorrect
 
 -- | Some instruction set to test on
 defaultInstructionSet :: [Instruction]
@@ -391,7 +304,7 @@ defaultInstructionSet = [
 
 -- TODO: create pruning lists for other equivalent programs besides identity functions
 -- | Create programs that compute f(x) -> x (equivalent to empty program)
-identityPrograms :: SuccTree -> [Program]
+identityPrograms :: (SuccTree, Int) -> [Program]
 identityPrograms tree =
     let
         idGoals = [([Int32Val x], [Int32Val x]) | x <- [-1000..1000]]
@@ -402,11 +315,11 @@ identityPrograms tree =
 identityPruned :: Int -> Int -> SuccTree -> ([Program], SuccTree)
 identityPruned i limit succTree =
     let
-        -- iteratively increase size of programs
+        -- iteratively prune successor tree
         tree = expandSuccTree defaultInstructionSet succTree
-        smaller = takeWhile (\x -> length x < i) (identityPrograms tree)
+        smaller = takeWhile (\x -> length x < i) (identityPrograms (tree, i-2))
         prunedTree = pruneSuccTree smaller tree
-        pruned = identityPrograms prunedTree
+        pruned = identityPrograms (prunedTree, i-2)
         prunedps = takeWhile (\x -> length x <= i) pruned
     in
         if i <= limit then
@@ -416,39 +329,38 @@ identityPruned i limit succTree =
                 (prunedps ++ ps, t)
             
         else
-            ([], succTree)
+            ([], prunedTree)
 
 tail' :: [a] -> [a]
 tail' [] = []
 tail' xs = tail xs
 
--- | Prune the succession tree
+-- | Prune the succession tree from the top
+-- | For example: Decrement followed by Increment can be pruned
 -- | TODO: make this more efficient
 pruneSuccTree :: [Program] -> SuccTree -> SuccTree
-pruneSuccTree pruneList (SuccTree depth tree) =
+pruneSuccTree pruneList (SuccTree tree) =
     let 
         topInstr = map head $ takeWhile (\x -> length x == 1) pruneList
         newTree = Map.filterWithKey (\k _ -> not (k `elem` topInstr)) tree
         pruneNonEmpty = filter (/= []) pruneList
+        subPruned = Map.mapWithKey (\i sub -> let c = map tail' (filter (\x -> head x == i) pruneNonEmpty) in pruneSuccTree c sub) newTree
     in
-        if pruneList == [] then
-            SuccTree depth tree
-        else
-            SuccTree depth (Map.mapWithKey (\i sub -> let c =  map tail' (filter (\x -> head x == i) pruneNonEmpty) in pruneSuccTree (c ++ pruneList) sub) newTree)
+        SuccTree subPruned
 
 -- | Expand succession tree
 -- | and/or pruned agressively
 expandSuccTree :: [Instruction] -> SuccTree -> SuccTree
-expandSuccTree instructions currTree@(SuccTree i _) =
+expandSuccTree instructions currTree =
         let
             trees = map (\instr -> (instr, currTree)) instructions
         in
-            SuccTree (i+1) (Map.fromList trees)
+            SuccTree (Map.fromList trees)
 
 
 -- | Find programs given input stacks and result (from shortest to higher, if possible)
 -- | This will not terminate if goals are not possible given instruction set and goals
-search :: [Instruction] -> [(Stack, [Val])] -> SuccTree -> [Program]
+search :: [Instruction] -> [(Stack, [Val])] -> (SuccTree, Int) -> [Program]
 search instructions goals tree =
     case goals of
         -- Compute first type, assume for now that all goals are of equal type
@@ -459,8 +371,8 @@ search instructions goals tree =
             []
 
 -- | Pruned successor tree of depth 5
-identity5Tree :: SuccTree
-identity5Tree = let (_,t) = identityPruned 2 5 (SuccTree 0 Map.empty) in t
+identity5Tree :: (SuccTree, Int)
+identity5Tree = let (_,tree) = identityPruned 2 5 (SuccTree Map.empty) in (tree, 5)
 
 
 {- Examples
