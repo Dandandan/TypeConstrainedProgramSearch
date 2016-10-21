@@ -299,25 +299,27 @@ defaultInstructionSet = [
     Lds (-4), Lds (-3), Lds (-2), Lds (-1), Int32Push (-1), Int32Push 0, Int32Push 1,
     Int32Add, Int32Sub, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
--- TODO: create pruning lists for other equivalent programs besides identity functions
--- | Create programs that compute f(x) -> x (equivalent to empty program)
-identityPrograms :: SuccTable -> [Program]
-identityPrograms table =
+-- | Find programs that are equivalent to smaller programs
+equivalentPrograms :: Int -> SuccTable -> [Program]
+equivalentPrograms maxSize table =
     let
-        idGoals = [([Int32Val x], [Int32Val x]) | x <- [-1000..1000]]
+        progs = [[], [Int32Dec], [Int32Inc], [Int32PopCount]]
+
+        goals = map (\p -> [([Int32Val x], exec p [Int32Val x]) | x <- [-100..100]]) progs
+        smallerThan = takeWhile (\x -> length x <= maxSize)
     in
-        search defaultInstructionSet idGoals table
+        concatMap (\(prog, progGoals) -> filter (/= prog) $ smallerThan (search defaultInstructionSet progGoals table)) (zip progs goals)
 
 -- | List of programs (probably) equivalent to f(x) = x
-identityPruned :: Int -> SuccTable -> SuccTable
-identityPruned limit succTable@(depth, _) =
+equivalentPruned :: Int -> SuccTable -> SuccTable
+equivalentPruned limit succTable@(depth, _) =
     let
         -- iteratively prune successor table
-        smaller = takeWhile (\x -> length x <= depth) (identityPrograms succTable)
+        smaller = equivalentPrograms depth succTable
         prunedTable = pruneSuccTable smaller succTable
     in
         if depth < limit then
-            identityPruned limit (expandSuccTable prunedTable)
+            equivalentPruned limit (expandSuccTable prunedTable)
         else
             prunedTable
 
@@ -351,8 +353,8 @@ simpleSuccTable instructionSet =
     (1, Map.fromList [([], instructionSet)])
 
 -- | Pruned successor table of depth 5
-identity5Table :: SuccTable
-identity5Table = identityPruned 5 (simpleSuccTable defaultInstructionSet)
+pruned5Table :: SuccTable
+pruned5Table = equivalentPruned 5 (simpleSuccTable defaultInstructionSet)
 
 
 {- Examples
@@ -360,30 +362,30 @@ identity5Table = identityPruned 5 (simpleSuccTable defaultInstructionSet)
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], [Int32Val 9]), ([Int32Val 3], [Int32Val 28]), ([Int32Val 4], [Int32Val 65])]
-pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals identity5Table
+pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals pruned5Table
 
 
 -- Find program that computes f(x, y) = popCount(x) + popCount(y)
 popCounts2Goals = [([Int32Val x, Int32Val y], [Int32Val (fromIntegral $ popCount x + popCount y)]) | x <- [-100..100], y <- [-100..100]]
-popCounts2Program = head $ search defaultInstructionSet popCounts2Goals identity5Table
+popCounts2Program = head $ search defaultInstructionSet popCounts2Goals pruned5Table
 
 -- leftShift by 3 without instruction Int32Push 3
 -- [Int32Push 2,Int32Push 2,Int32ShiftL,Int32Mul]
 leftshiftGoals = [([Int32Val i], [Int32Val (shiftL (fromIntegral i) 3)]) | i <- [-100..100]]
-leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals identity5Table
+leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals pruned5Table
 
 
 absGoals = [([Int32Val i], [Int32Val (abs i)]) | i <- [-100..100]]
-absProgram = head $ search defaultInstructionSet absGoals identity5Table
+absProgram = head $ search defaultInstructionSet absGoals pruned5Table
 
 minimumGoals = [([Int32Val i, Int32Val j], [minimum [Int32Val i, Int32Val j]]) | i <- [-10..10], j <- [-10..10]]
-minimumProgram = head $ search defaultInstructionSet minimumGoals identity5Table
+minimumProgram = head $ search defaultInstructionSet minimumGoals pruned5Table
 
 
 -- Result: [Lds (-2),Lds (-3),Lds (-3),Int32Max,Sts (-4),Int32Min]
 sort2Goals = [([Int32Val i, Int32Val j], sort [Int32Val i, Int32Val j]) | i <- [-10..10], j <- [-10..10]]
-sort2Program = head $ search defaultInstructionSet sort2Goals identity5Table
+sort2Program = head $ search defaultInstructionSet sort2Goals pruned5Table
 
 sort3Goals = [([Int32Val i, Int32Val j, Int32Val k], sort [Int32Val i, Int32Val j, Int32Val k]) | i <- [-10..10], j <- [-10..10], k <- [-10..10]]
-sort3Program = head $ search defaultInstructionSet sort3Goals identity5Table
+sort3Program = head $ search defaultInstructionSet sort3Goals pruned5Table
 -}
