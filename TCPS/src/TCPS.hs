@@ -4,7 +4,7 @@ import           Data.Bits  (complement, popCount, shiftL, shiftR, xor, (.&.),
                              (.|.))
 import           Data.Int   (Int32)
 import           Data.List  (sort, isInfixOf)
-import           qualified  Data.Map as Map (Map, fromList, (!), lookup, foldWithKey, union, adjust)
+import           qualified  Data.Map as Map (Map, fromList, (!), lookup, foldWithKey, union, adjust, filterWithKey)
 import           Data.Maybe (mapMaybe)
 
 -- | Possible base types
@@ -312,7 +312,7 @@ identityPrograms table =
 identityPruned :: Int -> SuccTable -> SuccTable
 identityPruned limit succTable@(depth, _) =
     let
-        --b iteratively prune successor table
+        -- iteratively prune successor table
         smaller = takeWhile (\x -> length x <= depth) (identityPrograms succTable)
         prunedTable = pruneSuccTable smaller succTable
     in
@@ -323,16 +323,16 @@ identityPruned limit succTable@(depth, _) =
 
 -- | Prune the succession table from the top
 -- | For example: Decrement followed by Increment can be pruned
--- | TODO: merge expansion with pruning
 pruneSuccTable :: [Program] -> SuccTable -> SuccTable
-pruneSuccTable pruneList (i, table) =
-    (i, foldr (\(ins:is) t -> Map.adjust (\x -> filter (/=ins) x) is t) table pruneList)
+pruneSuccTable pruneList (depth, table) =
+    -- remove each succesor from the table given a program (prefix + successor)
+    (depth, foldr (\program t -> let i = last program in Map.adjust (\x -> filter (/= i) x) (init program) t) table pruneList)
 
 -- | Expand succession table
 -- | and/or pruned agressively
 expandSuccTable :: SuccTable -> SuccTable
 expandSuccTable (depth, currTable) =
-    (depth + 1, Map.foldWithKey (\k next t -> Map.union t (Map.fromList [(k ++ [n], currTable Map.! (drop 1 (k ++ [n]))) | n <- next])) currTable currTable)
+    (depth + 1, Map.foldWithKey (\k next t -> Map.union t (Map.fromList [(k ++ [n], currTable Map.! (tail (k ++ [n]))) | n <- next])) currTable currTable)
 
 -- | Find programs given input stacks and result (from shortest to higher, if possible)
 -- | This will not terminate if goals are not possible given instruction set and goals
