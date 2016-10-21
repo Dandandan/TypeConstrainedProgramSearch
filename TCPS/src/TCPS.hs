@@ -279,9 +279,9 @@ searchIter :: [Instruction] -> [(Stack, [Val])] -> StackType -> StackType -> Pro
 searchIter instructions goals inputStackType outputStackType current succTable@(succDepth, _) currentDepth limit  =
     let
         successors = lookupSuccs (reverse (take (succDepth - 1) current)) succTable
-        -- Possible programs given current instruction set
+        -- Use only possible programs given current instruction set
         typeCorrect = mapMaybe (\i -> (\ty -> (ty, i:current)) `fmap` typeOf i inputStackType) successors
-        -- Don't run test when type != output type
+        -- Don't run test when current type != output type
         isOutput = filter (\(ty, _) -> ty == outputStackType) typeCorrect
         --  Find whether there are programs at current depth satisfy the goals TODO: undo reverse
         satisfiesAll = filter (\(_, program) ->
@@ -295,7 +295,7 @@ searchIter instructions goals inputStackType outputStackType current succTable@(
 -- | Some instruction set to test on
 defaultInstructionSet :: [Instruction]
 defaultInstructionSet = [
-    Int32Max, Int32Min,Int32And, Int32Or, Int32Xor, Int32Cmp, Sts(-2), Sts(-3), Sts(-4),
+    Int32Max, Int32Min,Int32And, Int32Or, Int32Xor, Int32Cmp, Sts(-2), Sts(-3), Sts(-4), Int32Neg,
     Lds (-4), Lds (-3), Lds (-2), Lds (-1), Int32Push (-1), Int32Push 0, Int32Push 1,
     Int32Add, Int32Sub, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
@@ -303,12 +303,21 @@ defaultInstructionSet = [
 equivalentPrograms :: Int -> SuccTable -> [Program]
 equivalentPrograms maxSize table =
     let
-        progs = [[], [Int32Dec], [Int32Inc], [Int32PopCount]]
-
+        progs = [[], [Int32Dec], [Int32Inc], [Int32PopCount], [Int32Push 1], [Int32Push 0], [Int32Push (-1)], [Lds (-1)], [Int32Neg]]
         goals = map (\p -> [([Int32Val x], exec p [Int32Val x]) | x <- [-100..100]]) progs
+
+        progs2 = [[Int32Add], [Int32Sub], [Int32Cmp], [Int32Max], [Int32Min], [Int32And],
+                  [Int32Or], [Int32Xor], [Int32Mul], [Int32Div], [Int32Push 1], [Int32Push 0],
+                  [Int32Push (-1)], [Sts (-1)], [Lds (-2)], [Lds (-2), Lds (-1)], [Lds (-1), Lds (-2)], [Lds (-1), Lds (-1)], [Lds (-1), Lds (-3)],
+                  [Lds (-2), Lds (-3)]
+                ] ++ progs
+        goals2 = map (\p -> [([Int32Val x, Int32Val y], exec p [Int32Val x, Int32Val y]) | x <- [-10..10], y <-[-10..10]]) progs2
+
         smallerThan = takeWhile (\x -> length x <= maxSize)
+
+        allProgsAndGoals = zip progs goals ++ zip progs2 goals2
     in
-        concatMap (\(prog, progGoals) -> filter (/= prog) $ smallerThan (search defaultInstructionSet progGoals table)) (zip progs goals)
+        concatMap (\(prog, progGoals) -> filter (/= prog) $ smallerThan (search defaultInstructionSet progGoals table)) allProgsAndGoals
 
 -- | List of programs (probably) equivalent to f(x) = x
 equivalentPruned :: Int -> SuccTable -> SuccTable
@@ -352,40 +361,44 @@ simpleSuccTable :: [Instruction] -> SuccTable
 simpleSuccTable instructionSet = 
     (1, Map.fromList [([], instructionSet)])
 
--- | Pruned successor table of depth 5
-pruned5Table :: SuccTable
-pruned5Table = equivalentPruned 5 (simpleSuccTable defaultInstructionSet)
+-- | Stores all possible successors, somewhat pruned
+prunedTableN :: Int ->  SuccTable
+prunedTableN depth = equivalentPruned depth (simpleSuccTable defaultInstructionSet)
 
+prunedTable4 :: SuccTable
+prunedTable4 = prunedTableN 4
+
+prunedTable5 :: SuccTable
+prunedTable5 = prunedTableN 5
 
 {- Examples
 
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], [Int32Val 9]), ([Int32Val 3], [Int32Val 28]), ([Int32Val 4], [Int32Val 65])]
-pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals pruned5Table
-
+pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals prunedTable4
 
 -- Find program that computes f(x, y) = popCount(x) + popCount(y)
 popCounts2Goals = [([Int32Val x, Int32Val y], [Int32Val (fromIntegral $ popCount x + popCount y)]) | x <- [-100..100], y <- [-100..100]]
-popCounts2Program = head $ search defaultInstructionSet popCounts2Goals pruned5Table
+popCounts2Program = head $ search defaultInstructionSet popCounts2Goals prunedTable4
 
 -- leftShift by 3 without instruction Int32Push 3
 -- [Int32Push 2,Int32Push 2,Int32ShiftL,Int32Mul]
 leftshiftGoals = [([Int32Val i], [Int32Val (shiftL (fromIntegral i) 3)]) | i <- [-100..100]]
-leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals pruned5Table
+leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals prunedTable4
 
 
 absGoals = [([Int32Val i], [Int32Val (abs i)]) | i <- [-100..100]]
-absProgram = head $ search defaultInstructionSet absGoals pruned5Table
+absProgram = head $ search defaultInstructionSet absGoals prunedTable4
 
 minimumGoals = [([Int32Val i, Int32Val j], [minimum [Int32Val i, Int32Val j]]) | i <- [-10..10], j <- [-10..10]]
-minimumProgram = head $ search defaultInstructionSet minimumGoals pruned5Table
+minimumProgram = head $ search defaultInstructionSet minimumGoals prunedTable4
 
 
 -- Result: [Lds (-2),Lds (-3),Lds (-3),Int32Max,Sts (-4),Int32Min]
 sort2Goals = [([Int32Val i, Int32Val j], sort [Int32Val i, Int32Val j]) | i <- [-10..10], j <- [-10..10]]
-sort2Program = head $ search defaultInstructionSet sort2Goals pruned5Table
+sort2Program = head $ search defaultInstructionSet sort2Goals prunedTable4
 
 sort3Goals = [([Int32Val i, Int32Val j, Int32Val k], sort [Int32Val i, Int32Val j, Int32Val k]) | i <- [-10..10], j <- [-10..10], k <- [-10..10]]
-sort3Program = head $ search defaultInstructionSet sort3Goals pruned5Table
+sort3Program = head $ search defaultInstructionSet sort3Goals prunedTable4
 -}
