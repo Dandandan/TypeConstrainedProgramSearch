@@ -3,8 +3,8 @@ module TCPS where
 import           Data.Bits  (complement, popCount, shiftL, shiftR, xor, (.&.),
                              (.|.))
 import           Data.Int   (Int32)
-import           Data.List  (sort)
-import           qualified  Data.Map as Map (Map, fromList, filterWithKey, mapWithKey, empty, findWithDefault, keys, (!))
+import           Data.List  (sort, isInfixOf)
+import           qualified  Data.Map as Map (Map, fromList, (!), lookup, foldWithKey, union, adjust)
 import           Data.Maybe (mapMaybe)
 
 -- | Possible base types
@@ -13,8 +13,8 @@ data BaseType = Int32Type | Float32Type deriving (Eq, Show)
 -- | Type of current stack
 type StackType = [BaseType]
 
--- | Multiway tree for contextual successor pruning 
-data SuccTree = SuccTree (Map.Map Instruction SuccTree) deriving Show
+-- | Table for looking up successors
+type SuccTable = (Int, Map.Map [Instruction] [Instruction])
 
 -- | Some implemented instruction
 data Instruction
@@ -148,7 +148,7 @@ exec todo stack  =
             exec xs (Int32Val (min y1 y2): ys)
 
         (Int32Max: xs, Int32Val y1: Int32Val y2: ys) ->
-            exec xs (Int32Val (min y1 y2): ys)
+            exec xs (Int32Val (max y1 y2): ys)
 
         (Float32Push i: xs, ys) ->
             exec xs (Float32Val i: ys)
@@ -266,20 +266,19 @@ typeOf instr stacktype =
             Nothing
 
 -- | Lookup successors given program context
-lookupSuccs :: [Instruction] -> SuccTree -> [Instruction]
-lookupSuccs [] (SuccTree y) = Map.keys y
-lookupSuccs ([x]) (SuccTree t) =
-    let
-        SuccTree y = Map.findWithDefault (SuccTree Map.empty) x t
-    in
-        Map.keys y
-lookupSuccs (x:xs) (SuccTree t) = lookupSuccs xs (Map.findWithDefault (SuccTree Map.empty) x t)
+lookupSuccs :: [Instruction] -> SuccTable -> [Instruction]
+lookupSuccs instructions (_, t) = 
+    case Map.lookup instructions t of
+        Nothing ->
+            []
+        Just nextInstructions ->
+            nextInstructions
 
 -- | Search for type correct programs that satisfy the goals given some instructions
-searchIter :: [Instruction] -> [(Stack, [Val])] -> StackType -> StackType -> Program -> (SuccTree, Int) -> Int -> Int -> [Program]
-searchIter instructions goals inputStackType outputStackType current (tree, succDepth) currentDepth limit  =
+searchIter :: [Instruction] -> [(Stack, [Val])] -> StackType -> StackType -> Program -> SuccTable -> Int -> Int -> [Program]
+searchIter instructions goals inputStackType outputStackType current succTable@(succDepth, _) currentDepth limit  =
     let
-        successors = lookupSuccs (reverse (take (succDepth - 1) current)) tree
+        successors = lookupSuccs (reverse (take (succDepth - 1) current)) succTable
         -- Possible programs given current instruction set
         typeCorrect = mapMaybe (\i -> (\ty -> (ty, i:current)) `fmap` typeOf i inputStackType) successors
         -- Don't run test when type != output type
@@ -291,7 +290,7 @@ searchIter instructions goals inputStackType outputStackType current (tree, succ
         if currentDepth == limit then
             map snd satisfiesAll
         else
-            concatMap (\(ty, program) -> searchIter instructions goals ty outputStackType program (tree, succDepth) (currentDepth + 1) limit) typeCorrect
+            concatMap (\(ty, program) -> searchIter instructions goals ty outputStackType program succTable (currentDepth + 1) limit) typeCorrect
 
 -- | Some instruction set to test on
 defaultInstructionSet :: [Instruction]
@@ -304,75 +303,62 @@ defaultInstructionSet = [
 
 -- TODO: create pruning lists for other equivalent programs besides identity functions
 -- | Create programs that compute f(x) -> x (equivalent to empty program)
-identityPrograms :: (SuccTree, Int) -> [Program]
-identityPrograms tree =
+identityPrograms :: SuccTable -> [Program]
+identityPrograms table =
     let
         idGoals = [([Int32Val x], [Int32Val x]) | x <- [-1000..1000]]
     in
-        search defaultInstructionSet idGoals tree
+        search defaultInstructionSet idGoals table
 
 -- | List of programs (probably) equivalent to f(x) = x
-identityPruned :: Int -> Int -> SuccTree -> ([Program], SuccTree)
-identityPruned i limit succTree =
+identityPruned :: Int -> SuccTable -> SuccTable
+identityPruned limit succTable@(depth, _) =
     let
-        -- iteratively prune successor tree
-        tree = expandSuccTree defaultInstructionSet succTree
-        smaller = takeWhile (\x -> length x < i) (identityPrograms (tree, i-2))
-        prunedTree = pruneSuccTree smaller tree
-        pruned = identityPrograms (prunedTree, i-2)
-        prunedps = takeWhile (\x -> length x <= i) pruned
+        --b iteratively prune successor table
+        smaller = takeWhile (\x -> length x <= depth) (identityPrograms succTable)
+        prunedTable = pruneSuccTable smaller succTable
     in
-        if i <= limit then
-            let 
-                (ps, t) = identityPruned (i + 1) limit prunedTree
-            in
-                (prunedps ++ ps, t)
-            
+        if depth < limit then
+            identityPruned limit (expandSuccTable prunedTable)
         else
-            ([], prunedTree)
+            prunedTable
 
 tail' :: [a] -> [a]
 tail' [] = []
 tail' xs = tail xs
 
--- | Prune the succession tree from the top
+-- | Prune the succession table from the top
 -- | For example: Decrement followed by Increment can be pruned
--- | TODO: make this more efficient
-pruneSuccTree :: [Program] -> SuccTree -> SuccTree
-pruneSuccTree pruneList (SuccTree tree) =
-    let 
-        topInstr = map head $ takeWhile (\x -> length x == 1) pruneList
-        newTree = Map.filterWithKey (\k _ -> not (k `elem` topInstr)) tree
-        pruneNonEmpty = filter (/= []) pruneList
-        subPruned = Map.mapWithKey (\i sub -> let c = map tail' (filter (\x -> head x == i) pruneNonEmpty) in pruneSuccTree c sub) newTree
-    in
-        SuccTree subPruned
+-- | TODO: merge expansion with pruning
+pruneSuccTable :: [Program] -> SuccTable -> SuccTable
+pruneSuccTable pruneList (i, table) =
+    (i, foldr (\(ins:is) t -> Map.adjust (\x -> filter (/=ins) x) is t) table pruneList)
 
--- | Expand succession tree
+-- | Expand succession table
 -- | and/or pruned agressively
-expandSuccTree :: [Instruction] -> SuccTree -> SuccTree
-expandSuccTree instructions currTree =
-        let
-            trees = map (\instr -> (instr, currTree)) instructions
-        in
-            SuccTree (Map.fromList trees)
-
+expandSuccTable :: SuccTable -> SuccTable
+expandSuccTable (depth, currTable) =
+    (depth + 1, Map.foldWithKey (\k next t -> Map.union t (Map.fromList [(k ++ [n], currTable Map.! (drop 1 (k ++ [n]))) | n <- next])) currTable currTable)
 
 -- | Find programs given input stacks and result (from shortest to higher, if possible)
 -- | This will not terminate if goals are not possible given instruction set and goals
-search :: [Instruction] -> [(Stack, [Val])] -> (SuccTree, Int) -> [Program]
-search instructions goals tree =
+search :: [Instruction] -> [(Stack, [Val])] -> SuccTable -> [Program]
+search instructions goals table =
     case goals of
         -- Compute first type, assume for now that all goals are of equal type
         (x, y): _ ->
             -- use iterative deepening
-            map reverse . filter (/=[]) $ concatMap (searchIter instructions goals (typeOfStack x) (typeOfStack y) [] tree 0) [0..]
+            map reverse . filter (/=[]) $ concatMap (searchIter instructions goals (typeOfStack x) (typeOfStack y) [] table 0) [0..]
         _ ->
             []
 
--- | Pruned successor tree of depth 5
-identity5Tree :: (SuccTree, Int)
-identity5Tree = let (_,tree) = identityPruned 2 5 (SuccTree Map.empty) in (tree, 5)
+simpleSuccTable :: [Instruction] -> SuccTable
+simpleSuccTable instructionSet = 
+    (1, Map.fromList [([], instructionSet)])
+
+-- | Pruned successor table of depth 5
+identity5Table :: SuccTable
+identity5Table = identityPruned 5 (simpleSuccTable defaultInstructionSet)
 
 
 {- Examples
@@ -380,30 +366,30 @@ identity5Tree = let (_,tree) = identityPruned 2 5 (SuccTree Map.empty) in (tree,
 
 -- Find program that computes f(x) = x ^ 3 + 1
 pow3PlusOneGoals = [([Int32Val 2], [Int32Val 9]), ([Int32Val 3], [Int32Val 28]), ([Int32Val 4], [Int32Val 65])]
-pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals identity5Tree
+pow3PlusOneProgram = head $ search defaultInstructionSet pow3PlusOneGoals identity5Table
 
 
 -- Find program that computes f(x, y) = popCount(x) + popCount(y)
 popCounts2Goals = [([Int32Val x, Int32Val y], [Int32Val (fromIntegral $ popCount x + popCount y)]) | x <- [-100..100], y <- [-100..100]]
-popCounts2Program = head $ search defaultInstructionSet popCounts2Goals identity5Tree
+popCounts2Program = head $ search defaultInstructionSet popCounts2Goals identity5Table
 
 -- leftShift by 3 without instruction Int32Push 3
 -- [Int32Push 2,Int32Push 2,Int32ShiftL,Int32Mul]
 leftshiftGoals = [([Int32Val i], [Int32Val (shiftL (fromIntegral i) 3)]) | i <- [-100..100]]
-leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals identity5Tree
+leftshiftProgram = head $ search defaultInstructionSet leftshiftGoals identity5Table
 
 
 absGoals = [([Int32Val i], [Int32Val (abs i)]) | i <- [-100..100]]
-absProgram = head $ search defaultInstructionSet absGoals identity5Tree
+absProgram = head $ search defaultInstructionSet absGoals identity5Table
 
 minimumGoals = [([Int32Val i, Int32Val j], [minimum [Int32Val i, Int32Val j]]) | i <- [-10..10], j <- [-10..10]]
-minimumProgram = head $ search defaultInstructionSet minimumGoals identity5Tree
+minimumProgram = head $ search defaultInstructionSet minimumGoals identity5Table
 
 
--- TODO: Should this be solvable?
+-- Result: [Lds (-2),Lds (-3),Lds (-3),Int32Max,Sts (-4),Int32Min]
 sort2Goals = [([Int32Val i, Int32Val j], sort [Int32Val i, Int32Val j]) | i <- [-10..10], j <- [-10..10]]
-sort2Program = head $ search defaultInstructionSet sort2Goals identity5Tree
+sort2Program = head $ search defaultInstructionSet sort2Goals identity5Table
 
-sort3Goals = [([Int32Val i, Int32Val j, Int32Val k], sort [Int32Val i, Int32Val j, Int32Val k]) | i <- [-100..100], j <- [-100..100], k <- [-100..100]]
-sort3Program = head $ search defaultInstructionSet sort3Goals identity5Tree
+sort3Goals = [([Int32Val i, Int32Val j, Int32Val k], sort [Int32Val i, Int32Val j, Int32Val k]) | i <- [-10..10], j <- [-10..10], k <- [-10..10]]
+sort3Program = head $ search defaultInstructionSet sort3Goals identity5Table
 -}
