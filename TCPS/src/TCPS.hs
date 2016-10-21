@@ -295,11 +295,9 @@ searchIter instructions goals inputStackType outputStackType current succTable@(
 -- | Some instruction set to test on
 defaultInstructionSet :: [Instruction]
 defaultInstructionSet = [
-    Int32Max, Int32Min,
-    Int32And, Int32Or, Int32Xor, Int32Cmp, Int32Eq, Int32Lt, Int32Lte, Int32Gt,
-    Int32Gte, Sts(-2), Sts(-3), Sts(-4), Lds (-4), Lds (-3), Lds (-2),
-    Lds (-1), Int32Push (-1), Int32Push 0, Int32Push 1, Int32Add, Int32Sub,
-    Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
+    Int32Max, Int32Min,Int32And, Int32Or, Int32Xor, Int32Cmp, Sts(-2), Sts(-3), Sts(-4),
+    Lds (-4), Lds (-3), Lds (-2), Lds (-1), Int32Push (-1), Int32Push 0, Int32Push 1,
+    Int32Add, Int32Sub, Int32Mul, Int32Div, Int32PopCount, Int32Inc, Int32Dec, Int32ShiftL, Int32ShiftR]
 
 -- TODO: create pruning lists for other equivalent programs besides identity functions
 -- | Create programs that compute f(x) -> x (equivalent to empty program)
@@ -322,10 +320,6 @@ identityPruned limit succTable@(depth, _) =
             identityPruned limit (expandSuccTable prunedTable)
         else
             prunedTable
-
-tail' :: [a] -> [a]
-tail' [] = []
-tail' xs = tail xs
 
 -- | Prune the succession table from the top
 -- | For example: Decrement followed by Increment can be pruned
